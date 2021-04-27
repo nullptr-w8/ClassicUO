@@ -54,6 +54,8 @@ namespace ClassicUO.IO
 
         internal IntPtr PositionAddress => (IntPtr) (_data + Position);
 
+    public bool IsEOF => Position >= Length;
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void ReleaseData()
         {

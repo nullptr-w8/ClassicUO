@@ -39,7 +39,7 @@ using ClassicUO.Utility.Logging;
 
 namespace ClassicUO.IO
 {
-    internal unsafe class UOFile : DataReader
+    internal unsafe class UOFile : DataReader, IDisposable
     {
         public UOFile(string filepath, bool loadFile = false)
         {
