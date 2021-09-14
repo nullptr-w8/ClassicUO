@@ -78,12 +78,15 @@ namespace ClassicUO.Renderer
         private readonly RasterizerState _rasterizerState;
         private SamplerState _sampler;
         private bool _started;
-        private DepthStencilState _stencil;
-        private readonly Texture2D[] _textureInfo;
+        private DepthStencilState _stencil, _stencilWithBuffer;
         private Matrix _transformMatrix;
         private readonly DynamicVertexBuffer _vertexBuffer;
-        private PositionNormalTextureColor4[] _vertexInfo;
 
+        private Texture2D[] _textureInfo;
+        private PositionNormalTextureColor4[] _vertexInfo, _sortedVertexInfo;
+        private SpriteInfo[] _spriteInfos;
+        private IntPtr[] _sortedSpriteInfos;
+        private bool _useDepth;
 
         public UltimaBatcher2D(GraphicsDevice device)
         {
@@ -91,6 +94,9 @@ namespace ClassicUO.Renderer
 
             _textureInfo = new Texture2D[MAX_SPRITES];
             _vertexInfo = new PositionNormalTextureColor4[MAX_SPRITES];
+            _sortedVertexInfo = new PositionNormalTextureColor4[MAX_SPRITES];
+            _spriteInfos = new SpriteInfo[MAX_SPRITES];
+            _sortedSpriteInfos = new IntPtr[MAX_SPRITES];
             _vertexBuffer = new DynamicVertexBuffer(GraphicsDevice, typeof(PositionNormalTextureColor4), MAX_VERTICES, BufferUsage.WriteOnly);
             _indexBuffer = new IndexBuffer(GraphicsDevice, IndexElementSize.SixteenBits, MAX_INDICES, BufferUsage.WriteOnly);
             _indexBuffer.SetData(GenerateIndexArray());
@@ -109,27 +115,40 @@ namespace ClassicUO.Renderer
                 ScissorTestEnable = true
             };
 
-            _stencil = Stencil;
+            _stencil = new DepthStencilState
+            {
+                StencilEnable = false,
+                DepthBufferEnable = false,
+                StencilFunction = CompareFunction.NotEqual,
+                ReferenceStencil = 1,
+                StencilMask = 1,
+                StencilFail = StencilOperation.Keep,
+                StencilDepthBufferFail = StencilOperation.Keep,
+                StencilPass = StencilOperation.Keep
+            };
+
+            _stencilWithBuffer = new DepthStencilState
+            {
+                StencilEnable = false,
+                DepthBufferEnable = true,
+                StencilFunction = CompareFunction.Always,
+                ReferenceStencil = 0,
+                StencilMask = 0,
+                StencilFail = StencilOperation.Replace,
+                StencilDepthBufferFail = StencilOperation.Keep,
+                StencilPass = StencilOperation.Replace
+            };
 
             DefaultEffect = new IsometricEffect(device);
         }
 
+        public int FlushDone, TextureChanges;
 
         public Matrix TransformMatrix => _transformMatrix;
 
         public MatrixEffect DefaultEffect { get; }
 
-        public DepthStencilState Stencil { get; } = new DepthStencilState
-        {
-            StencilEnable = false,
-            DepthBufferEnable = false,
-            StencilFunction = CompareFunction.NotEqual,
-            ReferenceStencil = 1,
-            StencilMask = 1,
-            StencilFail = StencilOperation.Keep,
-            StencilDepthBufferFail = StencilOperation.Keep,
-            StencilPass = StencilOperation.Keep
-        };
+        public DepthStencilState Stencil => _useDepth ? _stencilWithBuffer : _stencil;
 
         public GraphicsDevice GraphicsDevice { get; }
 
@@ -139,6 +158,11 @@ namespace ClassicUO.Renderer
             DefaultEffect?.Dispose();
             _vertexBuffer.Dispose();
             _indexBuffer.Dispose();
+        }
+
+        public void UseDepth(bool use)
+        {
+            _useDepth = use;
         }
 
 
@@ -1643,6 +1667,9 @@ namespace ClassicUO.Renderer
             EnsureNotStarted();
             _started = true;
 
+            FlushDone = 0;
+            TextureChanges = 0;
+            _numSprites = 0;
 
             _customEffect = customEffect;
             _transformMatrix = transform_matrix;
@@ -1662,11 +1689,19 @@ namespace ClassicUO.Renderer
         {
             EnsureStarted();
 
-            if (_numSprites >= MAX_SPRITES)
+            if (_numSprites >= _vertexInfo.Length)
             {
-                Flush();
+                //Flush();
+
+                int newMax = _vertexInfo.Length + MAX_SPRITES;
+                Array.Resize(ref _vertexInfo, newMax);
+                Array.Resize(ref _textureInfo, newMax);
+                Array.Resize(ref _spriteInfos, newMax);
+                Array.Resize(ref _sortedSpriteInfos, newMax);
+                Array.Resize(ref _sortedVertexInfo, newMax);
             }
         }
+
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool PushSprite(Texture2D texture)
@@ -1677,7 +1712,26 @@ namespace ClassicUO.Renderer
             }
 
             EnsureSize();
-            _textureInfo[_numSprites++] = texture;
+            ref var vertex = ref _vertexInfo[_numSprites];
+
+            if (_useDepth)
+            {
+                vertex.Position0.Z = _numSprites;
+                vertex.Position1.Z = _numSprites;
+                vertex.Position2.Z = _numSprites;
+                vertex.Position3.Z = _numSprites;
+
+                Unsafe.Copy(ref _sortedVertexInfo[_numSprites], Unsafe.AsPointer(ref vertex));
+
+                ref SpriteInfo spriteInfo = ref _spriteInfos[_numSprites];
+                spriteInfo.Hash = texture.GetHashCode();
+                spriteInfo.VertexIndex = _numSprites;
+            }
+            
+
+            _textureInfo[_numSprites] = texture;
+
+            ++_numSprites;
 
             return true;
         }
@@ -1703,7 +1757,7 @@ namespace ClassicUO.Renderer
         private void ApplyStates()
         {
             GraphicsDevice.BlendState = _blendState;
-            GraphicsDevice.DepthStencilState = _stencil;
+            GraphicsDevice.DepthStencilState = Stencil;
             GraphicsDevice.RasterizerState = _rasterizerState;
             GraphicsDevice.SamplerStates[0] = _sampler;
             GraphicsDevice.SamplerStates[1] = SamplerState.PointClamp;
@@ -1716,6 +1770,39 @@ namespace ClassicUO.Renderer
             SetMatrixForEffect(DefaultEffect);
         }
 
+        private readonly IComparer<IntPtr> _textureComparer = new TextureComparer();
+
+
+        private void SortTextures()
+        {
+            if (!_useDepth)
+            {
+                return;
+            }
+
+            fixed (SpriteInfo* spriteInfo = &_spriteInfos[0])
+            fixed (IntPtr* sortedSpriteInfo = &_sortedSpriteInfos[0])
+            //fixed (PositionNormalTextureColor4* vertexInfo = &_vertexInfo[0])
+            {
+                for (int i = 0; i < _numSprites; ++i)
+                {
+                    sortedSpriteInfo[i] = (IntPtr)(&spriteInfo[i]);
+                }
+
+                Array.Sort(_sortedSpriteInfos, _textureInfo, 0, _numSprites, _textureComparer);
+
+
+                for (int i = 0; i < _numSprites; ++i)
+                {
+                    var info = (SpriteInfo*)sortedSpriteInfo[i];
+
+                    Unsafe.Copy(ref _vertexInfo[i], Unsafe.AsPointer(ref _sortedVertexInfo[info->VertexIndex]));
+                }
+            }
+        }
+
+
+
         private void Flush()
         {
             if (_numSprites == 0)
@@ -1723,6 +1810,7 @@ namespace ClassicUO.Renderer
                 return;
             }
 
+            ++FlushDone;
             ApplyStates();
 
 
@@ -1738,6 +1826,9 @@ namespace ClassicUO.Renderer
                 }
             }
 
+
+            SortTextures();
+
             int arrayOffset = 0;
         nextbatch:
             int batchSize = Math.Min(_numSprites, MAX_SPRITES);
@@ -1752,6 +1843,7 @@ namespace ClassicUO.Renderer
 
                 if (tex != curTexture)
                 {
+                    ++TextureChanges;
                     InternalDraw(curTexture, baseOff + offset, i - offset);
                     curTexture = tex;
                     offset = i;
@@ -1772,10 +1864,17 @@ namespace ClassicUO.Renderer
 
         private void SetMatrixForEffect(MatrixEffect effect)
         {
-            _projectionMatrix.M11 = (float) (2.0 / GraphicsDevice.Viewport.Width);
-            _projectionMatrix.M22 = (float) (-2.0 / GraphicsDevice.Viewport.Height);
+            const int MIN_Z = ushort.MinValue;
+            const int MAX_Z = ushort.MaxValue;
 
-            Matrix.Multiply(ref _transformMatrix, ref _projectionMatrix, out Matrix matrix);
+            //_projectionMatrix.M11 = (float)(2.0 / GraphicsDevice.Viewport.Width);
+            //_projectionMatrix.M22 = (float)(-2.0 / GraphicsDevice.Viewport.Height);
+            //_projectionMatrix.M33 = (float)(1.0 / ((double)MIN_Z - (double)MAX_Z));
+            //_projectionMatrix.M43 = (float)((double)MIN_Z / ((double)MIN_Z - (double)MAX_Z));
+
+            //Matrix.Multiply(ref _transformMatrix, ref _projectionMatrix, out Matrix matrix);
+
+            var matrix = Matrix.CreateOrthographicOffCenter(0, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height, 0f, _useDepth ? Int16.MinValue : -1, _useDepth ? Int16.MaxValue : 1);
 
             effect.ApplyStates(matrix);
         }
@@ -1862,7 +1961,14 @@ namespace ClassicUO.Renderer
         {
             Flush();
 
-            _stencil = stencil ?? Stencil;
+            if (_useDepth)
+            {
+                _stencilWithBuffer = stencil ?? _stencilWithBuffer;
+            }
+            else
+            {
+                _stencil = stencil ?? _stencil;
+            }            
         }
 
         public void SetSampler(SamplerState sampler)
@@ -1921,6 +2027,23 @@ namespace ClassicUO.Renderer
             return result;
         }
 
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        private struct SpriteInfo
+        {
+            public int Hash;
+            public int VertexIndex;
+        }
+
+        private class TextureComparer : IComparer<IntPtr>
+        {
+            public unsafe int Compare(IntPtr i1, IntPtr i2)
+            {
+                SpriteInfo* p1 = (SpriteInfo*)i1;
+                SpriteInfo* p2 = (SpriteInfo*)i2;
+                return p1->Hash.CompareTo(p2->Hash);
+            }
+        }
 
         private class IsometricEffect : MatrixEffect
         {

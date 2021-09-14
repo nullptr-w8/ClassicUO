@@ -1037,6 +1037,7 @@ namespace ClassicUO.Game.Scenes
 
             batcher.Begin(null, matrix);
             batcher.SetBrightlight(ProfileManager.CurrentProfile.TerrainShadowsLevel * 0.1f);
+            batcher.UseDepth(true);
 
             bool usecircle = ProfileManager.CurrentProfile.UseCircleOfTransparency;
 
@@ -1127,8 +1128,15 @@ namespace ClassicUO.Game.Scenes
 
             // draw weather
             Weather.Draw(batcher, 0, 0);
+
+            hueVec.X = 0;
+            hueVec.Y = 0;
+            hueVec.Z = 0;
+            batcher.DrawString(Fonts.Bold, $"Flush done in DrawWorld: {batcher.FlushDone}\nTexture changes: {batcher.TextureChanges}", 100, 100, ref hueVec);
+
             batcher.End();
             batcher.SetSampler(null);
+            batcher.UseDepth(false);
 
             if (use_render_target)
             {
