@@ -1129,11 +1129,6 @@ namespace ClassicUO.Game.Scenes
             // draw weather
             Weather.Draw(batcher, 0, 0);
 
-            hueVec.X = 0;
-            hueVec.Y = 0;
-            hueVec.Z = 0;
-            batcher.DrawString(Fonts.Bold, $"Flush done in DrawWorld: {batcher.FlushDone}\nTexture changes: {batcher.TextureChanges}", 100, 100, ref hueVec);
-
             batcher.End();
             batcher.SetSampler(null);
             batcher.UseDepth(false);
