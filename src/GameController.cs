@@ -41,6 +41,7 @@ using ClassicUO.Game.GameObjects;
 using ClassicUO.Game.Managers;
 using ClassicUO.Game.Scenes;
 using ClassicUO.Game.UI.Gumps;
+using ClassicUO.Game.UI.WebRender;
 using ClassicUO.Input;
 using ClassicUO.IO.Resources;
 using ClassicUO.Network;
@@ -86,6 +87,10 @@ namespace ClassicUO
             IsFixedTimeStep = false; // Settings.GlobalSettings.FixedTimeStep;
             TargetElapsedTime = TimeSpan.FromMilliseconds(1000.0 / 250.0);
             InactiveSleepTime = TimeSpan.Zero;
+
+            SDL.SDL_SysWMinfo info = new SDL.SDL_SysWMinfo();
+            SDL.SDL_GetWindowWMInfo(Window.Handle, ref info);
+            UIManager.webRender = new WebRender(info.info.win.window, Window.Handle);
         }
 
         public Scene Scene { get; private set; }

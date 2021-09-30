@@ -6423,14 +6423,14 @@ namespace ClassicUO.Network
         }
 
         private static Gump CreateGump
-        (
-            uint sender,
-            uint gumpID,
-            int x,
-            int y,
-            string layout,
-            string[] lines
-        )
+       (
+           uint sender,
+           uint gumpID,
+           int x,
+           int y,
+           string layout,
+           string[] lines
+       )
         {
             List<string> cmdlist = _parser.GetTokens(layout);
             int cmdlen = cmdlist.Count;
@@ -6486,7 +6486,7 @@ namespace ClassicUO.Network
 
 
             bool textBoxFocused = false;
-
+            bool useWebRender = false;
             for (int cnt = 0; cnt < cmdlen; cnt++)
             {
                 List<string> gparams = _cmdparser.GetTokens(cmdlist[cnt], false);
@@ -6497,6 +6497,30 @@ namespace ClassicUO.Network
                 }
 
                 string entry = gparams[0];
+
+                if (useWebRender &&
+                    string.Equals(entry, "body", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    if (gparams.Count < 2)
+                        return null;
+
+                    UIManager.webRender.ShowBody(gumpID, gump.LocalSerial, Encoding.UTF8.GetString(Convert.FromBase64String(gparams[1])));
+                }
+                else if (useWebRender &&
+                   string.Equals(entry, "bodyUpdate", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    if (gparams.Count < 3)
+                        return null;
+                    UIManager.webRender.onReceive(gumpID, gparams[1], Encoding.UTF8.GetString(Convert.FromBase64String(gparams[2])));
+                }
+
+                if (string.Equals(entry, "webrender", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    useWebRender = true;
+                }
+
+                if (useWebRender)
+                    continue;
 
                 if (string.Equals(entry, "button", StringComparison.InvariantCultureIgnoreCase))
                 {
@@ -6665,7 +6689,7 @@ namespace ClassicUO.Network
                                 0,
                                 true
                             )
-                            { IsFromServer = true },
+                        { IsFromServer = true },
                         page
                     );
                 }
@@ -6693,7 +6717,7 @@ namespace ClassicUO.Network
                                 color,
                                 true
                             )
-                            { IsFromServer = true },
+                        { IsFromServer = true },
                         page
                     );
                 }
@@ -6734,7 +6758,7 @@ namespace ClassicUO.Network
                                 color,
                                 true
                             )
-                            { IsFromServer = true },
+                        { IsFromServer = true },
                         page
                     );
                 }

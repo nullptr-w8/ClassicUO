@@ -35,6 +35,7 @@ using System.Collections.Generic;
 using ClassicUO.Configuration;
 using ClassicUO.Game.UI.Controls;
 using ClassicUO.Game.UI.Gumps;
+using ClassicUO.Game.UI.WebRender;
 using ClassicUO.Input;
 using ClassicUO.Renderer;
 using Microsoft.Xna.Framework;
@@ -61,6 +62,7 @@ namespace ClassicUO.Game.Managers
         public static LinkedList<Gump> Gumps { get; } = new LinkedList<Gump>();
 
         public static Control MouseOverControl { get; private set; }
+        public static WebRender webRender { get; set; }
 
         public static bool IsModalOpen { get; private set; }
 
